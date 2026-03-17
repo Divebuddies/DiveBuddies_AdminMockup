@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DiveBuddies — System Architecture</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #ebedef; color: #2d3748; }
+
+    /* ── Header ── */
+    .page-header {
+      background: #fff;
+      border-bottom: 1px solid #d8dbe0;
+      padding: 18px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky; top: 0; z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    .page-header img { height: 36px; }
+    .page-header h1 { font-size: 1.25rem; font-weight: 700; color: #2d3748; }
+    .page-header span { font-size: .85rem; color: #768192; margin-left: 8px; }
+    .badge-live { background: #2eb85c; color: #fff; font-size: .7rem; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-left: auto; }
+
+    /* ── Layout ── */
+    .container { max-width: 1400px; margin: 0 auto; padding: 32px 24px; }
+
+    /* ── Section title ── */
+    .section-title {
+      font-size: 1rem; font-weight: 700; color: #5856d6;
+      text-transform: uppercase; letter-spacing: .06em;
+      margin-bottom: 16px; padding-bottom: 8px;
+      border-bottom: 2px solid #5856d6;
+    }
+
+    /* ── Diagram ── */
+    .diagram-wrapper {
+      background: #fff;
+      border-radius: 12px;
+      padding: 32px;
+      margin-bottom: 32px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.06);
+      overflow-x: auto;
+    }
+
+    .arch-diagram {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      grid-template-rows: auto auto auto;
+      gap: 0;
+      min-width: 900px;
+      position: relative;
+    }
+
+    /* Nodes */
+    .node {
+      border-radius: 12px;
+      padding: 20px 18px;
+      margin: 12px;
+      position: relative;
+    }
+    .node-title { font-size: .8rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; margin-bottom: 6px; }
+    .node-name { font-size: 1.05rem; font-weight: 700; margin-bottom: 8px; }
+    .node-badge { display: inline-block; font-size: .7rem; font-weight: 600; padding: 2px 8px; border-radius: 20px; margin-bottom: 10px; }
+    .node-detail { font-size: .78rem; line-height: 1.6; }
+    .node-detail code { font-family: 'SF Mono', Consolas, monospace; font-size: .75rem; background: rgba(0,0,0,.07); padding: 1px 5px; border-radius: 3px; }
+    .node-detail .label { font-weight: 600; color: #4a5568; display: inline-block; min-width: 80px; }
+
+    /* Node colours */
+    .node-app    { background: #ebf8ff; border: 2px solid #4299e1; }
+    .node-app .node-title { color: #2b6cb0; }
+    .node-app .node-badge { background: #bee3f8; color: #2b6cb0; }
+
+    .node-admin  { background: #faf5ff; border: 2px solid #9f7aea; }
+    .node-admin .node-title { color: #6b46c1; }
+    .node-admin .node-badge { background: #e9d8fd; color: #6b46c1; }
+
+    .node-api    { background: #f0fff4; border: 2px solid #48bb78; }
+    .node-api .node-title { color: #276749; }
+    .node-api .node-badge { background: #c6f6d5; color: #276749; }
+
+    .node-mongo  { background: #fffaf0; border: 2px solid #ed8936; }
+    .node-mongo .node-title { color: #c05621; }
+    .node-mongo .node-badge { background: #feebc8; color: #c05621; }
+
+    .node-redis  { background: #fff5f5; border: 2px solid #fc8181; }
+    .node-redis .node-title { color: #c53030; }
+    .node-redis .node-badge { background: #fed7d7; color: #c53030; }
+
+    .node-aws    { background: #fffff0; border: 2px solid #d69e2e; }
+    .node-aws .node-title { color: #975a16; }
+    .node-aws .node-badge { background: #fefcbf; color: #975a16; }
+
+    .node-ext    { background: #f7fafc; border: 2px solid #a0aec0; }
+    .node-ext .node-title { color: #4a5568; }
+    .node-ext .node-badge { background: #e2e8f0; color: #4a5568; }
+
+    /* Grid layout */
+    .col-clients  { grid-column: 1; }
+    .col-server   { grid-column: 2; }
+    .col-services { grid-column: 3; }
+
+    .row1 { grid-row: 1; }
+    .row2 { grid-row: 2; }
+    .row3 { grid-row: 3; }
+    .row4 { grid-row: 4; }
+
+    /* Arrows — using SVG overlay */
+    .diagram-svg-wrapper { position: relative; min-width: 900px; }
+    .arch-arrows { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+
+    /* Column headers */
+    .col-header {
+      text-align: center;
+      font-size: .75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: .08em;
+      color: #718096;
+      padding: 8px;
+      background: #f7fafc;
+      border-radius: 8px;
+      margin: 8px 12px 0;
+    }
+
+    /* ── Connection table ── */
+    .conn-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: .82rem;
+      margin-bottom: 32px;
+    }
+    .conn-table th {
+      background: #5856d6;
+      color: #fff;
+      padding: 10px 14px;
+      text-align: left;
+      font-weight: 600;
+    }
+    .conn-table th:first-child { border-radius: 8px 0 0 0; }
+    .conn-table th:last-child  { border-radius: 0 8px 0 0; }
+    .conn-table td { padding: 9px 14px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .conn-table tr:nth-child(even) td { background: #f7fafc; }
+    .conn-table tr:hover td { background: #edf2f7; }
+    .conn-table code { font-family: 'SF Mono', Consolas, monospace; font-size: .75rem; background: #edf2f7; padding: 2px 6px; border-radius: 3px; color: #2d3748; }
+    .tag { display: inline-block; font-size: .68rem; font-weight: 700; padding: 2px 7px; border-radius: 20px; white-space: nowrap; }
+    .tag-https  { background: #c6f6d5; color: #276749; }
+    .tag-jwt    { background: #e9d8fd; color: #6b46c1; }
+    .tag-basic  { background: #feebc8; color: #c05621; }
+    .tag-internal { background: #bee3f8; color: #2b6cb0; }
+
+    /* ── Endpoint table ── */
+    .ep-table { width: 100%; border-collapse: collapse; font-size: .8rem; margin-bottom: 32px; }
+    .ep-table th { background: #2d3748; color: #fff; padding: 9px 12px; text-align: left; font-weight: 600; }
+    .ep-table th:first-child { border-radius: 8px 0 0 0; }
+    .ep-table th:last-child  { border-radius: 0 8px 0 0; }
+    .ep-table td { padding: 8px 12px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+    .ep-table tr:nth-child(even) td { background: #f7fafc; }
+    .method { display: inline-block; font-size: .68rem; font-weight: 800; padding: 2px 7px; border-radius: 4px; min-width: 44px; text-align: center; }
+    .get    { background: #c6f6d5; color: #276749; }
+    .post   { background: #bee3f8; color: #2b6cb0; }
+    .put    { background: #fefcbf; color: #975a16; }
+    .patch  { background: #feebc8; color: #c05621; }
+    .delete { background: #fed7d7; color: #c53030; }
+
+    /* ── Info cards ── */
+    .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 32px; }
+    .info-card { background: #fff; border-radius: 10px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.06); border-left: 4px solid #5856d6; }
+    .info-card h3 { font-size: .85rem; font-weight: 700; color: #5856d6; margin-bottom: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    .info-card .kv { display: flex; justify-content: space-between; align-items: flex-start; padding: 5px 0; border-bottom: 1px solid #f0f0f0; font-size: .8rem; gap: 8px; }
+    .info-card .kv:last-child { border-bottom: none; }
+    .info-card .kv .k { color: #718096; font-weight: 600; min-width: 120px; }
+    .info-card .kv .v { color: #2d3748; font-family: 'SF Mono', Consolas, monospace; font-size: .75rem; text-align: right; word-break: break-all; }
+
+    /* ── Note box ── */
+    .note { background: #fffbeb; border: 1px solid #f6e05e; border-radius: 8px; padding: 14px 18px; font-size: .82rem; color: #744210; margin-bottom: 24px; }
+    .note strong { color: #975a16; }
+
+    /* ── Tabs ── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 20px; flex-wrap: wrap; }
+    .tab { padding: 8px 18px; border-radius: 6px; font-size: .82rem; font-weight: 600; cursor: pointer; border: 1px solid #d8dbe0; background: #fff; color: #768192; transition: all .15s; }
+    .tab.active { background: #5856d6; color: #fff; border-color: #5856d6; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ── Diagram arrows ── */
+    .arrow-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 4px 0;
+      font-size: .72rem;
+      color: #718096;
+    }
+    .arrow-line { flex: 1; height: 2px; background: #cbd5e0; position: relative; max-width: 60px; }
+    .arrow-line::after { content: '▶'; position: absolute; right: -6px; top: -7px; font-size: 10px; color: #a0aec0; }
+    .arrow-label { background: #fff; border: 1px solid #e2e8f0; border-radius: 4px; padding: 1px 6px; font-size: .68rem; white-space: nowrap; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .arch-diagram { grid-template-columns: 1fr; }
+      .col-clients, .col-server, .col-services { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="page-header">
+  <img src="LogoImage.jpg" alt="DiveBuddies" />
+  <div>
+    <h1>System Architecture</h1>
+    <span>DiveBuddies Platform — Infrastructure &amp; Connections</span>
+  </div>
+  <span class="badge-live">● LIVE SYSTEM</span>
+</div>
+
+<div class="container">
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="showTab('overview')">Overview Diagram</div>
+    <div class="tab" onclick="showTab('connections')">Connection Details</div>
+    <div class="tab" onclick="showTab('endpoints')">API Endpoints</div>
+    <div class="tab" onclick="showTab('services')">External Services</div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- TAB 1: OVERVIEW DIAGRAM                               -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <div class="tab-content active" id="tab-overview">
+
+    <div class="note">
+      <strong>Note:</strong> IP addresses and database URIs are stored in environment variables (<code>.env</code> files) on the server and are not committed to source code. The values shown below reflect what is discoverable from the codebase. The production server IP (<code>13.234.75.73</code>) was found commented in the source code as the dev server address.
+    </div>
+
+    <div class="diagram-wrapper">
+      <div style="display:grid; grid-template-columns:1fr 1fr 1fr; min-width:900px;">
+
+        <!-- Column headers -->
+        <div class="col-header">CLIENT LAYER</div>
+        <div class="col-header">SERVER LAYER</div>
+        <div class="col-header">DATA &amp; SERVICES LAYER</div>
+
+        <!-- Row 1 -->
+        <!-- Mobile App -->
+        <div class="node node-app" style="grid-row:2; grid-column:1; align-self:start;">
+          <div class="node-title">Mobile App</div>
+          <div class="node-name">DiveBuddies App</div>
+          <div class="node-badge">iOS &amp; Android</div>
+          <div class="node-detail">
+            <div><span class="label">Framework:</span> React Native 0.80.2</div>
+            <div><span class="label">Language:</span> TypeScript</div>
+            <div><span class="label">State:</span> Redux Toolkit</div>
+            <div><span class="label">API Base:</span> <code>https://apis.divebuddies.app</code></div>
+            <div><span class="label">Dev IP:</span> <code>http://13.234.75.73</code></div>
+            <div><span class="label">Local Dev:</span> <code>http://192.168.1.28:3001</code></div>
+            <div><span class="label">Auth:</span> Bearer JWT + Basic Auth</div>
+            <div><span class="label">Repo:</span> DiveBuddies_App</div>
+          </div>
+        </div>
+
+        <!-- Backend API -->
+        <div class="node node-api" style="grid-row:2; grid-column:2; align-self:start;">
+          <div class="node-title">Backend API</div>
+          <div class="node-name">DiveBuddies Server</div>
+          <div class="node-badge">Node.js + Express</div>
+          <div class="node-detail">
+            <div><span class="label">Framework:</span> Express 4.21.1</div>
+            <div><span class="label">Language:</span> TypeScript</div>
+            <div><span class="label">Port:</span> <code>$APP_PORT</code> (env)</div>
+            <div><span class="label">Context:</span> <code>/api/v1/</code></div>
+            <div><span class="label">Prod URL:</span> <code>https://apis.divebuddies.app</code></div>
+            <div><span class="label">Dev IP:</span> <code>http://13.234.75.73</code></div>
+            <div><span class="label">Vercel:</span> <code>divebuddies-vercel.vercel.app</code></div>
+            <div><span class="label">CORS:</span> All origins (*)</div>
+            <div><span class="label">Repo:</span> DiveBuddies_Admin</div>
+          </div>
+        </div>
+
+        <!-- MongoDB -->
+        <div class="node node-mongo" style="grid-row:2; grid-column:3; align-self:start;">
+          <div class="node-title">Primary Database</div>
+          <div class="node-name">MongoDB Atlas</div>
+          <div class="node-badge">Mongoose 8.8.3</div>
+          <div class="node-detail">
+            <div><span class="label">Type:</span> NoSQL Document DB</div>
+            <div><span class="label">ODM:</span> Mongoose 8.8.3</div>
+            <div><span class="label">URI:</span> <code>$MONGO_URI</code> (env)</div>
+            <div><span class="label">Protocol:</span> <code>mongodb+srv://</code></div>
+            <div><span class="label">Collections:</span> users, posts, comments, likes, bookmarks, reports, trips, expenses, logs, buddies, sites, cities, cms, feedback, articles, marine…</div>
+          </div>
+        </div>
+
+        <!-- Admin Website -->
+        <div class="node node-admin" style="grid-row:3; grid-column:1; align-self:start; margin-top:0;">
+          <div class="node-title">Admin Dashboard</div>
+          <div class="node-name">DiveBuddies Admin</div>
+          <div class="node-badge">React + CoreUI</div>
+          <div class="node-detail">
+            <div><span class="label">Framework:</span> React 18.2 + CoreUI v5</div>
+            <div><span class="label">Language:</span> JavaScript</div>
+            <div><span class="label">State:</span> Redux</div>
+            <div><span class="label">API Base:</span> <code>$REACT_APP_BASE_URL</code></div>
+            <div><span class="label">Auth:</span> Bearer JWT (admin token)</div>
+            <div><span class="label">Repo:</span> DiveBuddies_Website</div>
+            <div><span class="label">Mockup:</span> <code>divebuddies.github.io/…</code></div>
+          </div>
+        </div>
+
+        <!-- Redis -->
+        <div class="node node-redis" style="grid-row:3; grid-column:2; align-self:start; margin-top:0;">
+          <div class="node-title">Cache / Session Store</div>
+          <div class="node-name">Redis</div>
+          <div class="node-badge">ioredis 5.4.1</div>
+          <div class="node-detail">
+            <div><span class="label">Library:</span> ioredis 5.4.1</div>
+            <div><span class="label">Host:</span> <code>$REDIS_HOST</code> (env)</div>
+            <div><span class="label">Port:</span> <code>$REDIS_PORT</code> (env)</div>
+            <div><span class="label">DB index:</span> <code>$REDIS_DB</code> (env)</div>
+            <div><span class="label">Usage:</span> Session tokens, OTP storage, token blacklist</div>
+            <div><span class="label">Keys:</span> <code>sessions_*</code>, <code>PHONE_OTP</code></div>
+          </div>
+        </div>
+
+        <!-- AWS -->
+        <div class="node node-aws" style="grid-row:3; grid-column:3; align-self:start; margin-top:0;">
+          <div class="node-title">Cloud Storage</div>
+          <div class="node-name">AWS S3</div>
+          <div class="node-badge">@aws-sdk/client-s3</div>
+          <div class="node-detail">
+            <div><span class="label">Bucket:</span> <code>$S3_BUCKET</code> (env)</div>
+            <div><span class="label">Region:</span> <code>$S3_REGION</code> (env)</div>
+            <div><span class="label">Base URL:</span> <code>$AWS_BASE_URL</code> (env)</div>
+            <div><span class="label">Upload:</span> Presigned POST URLs</div>
+            <div><span class="label">Folders:</span> profile/, posts/, trips/, logs/, sites/, articles/cover/</div>
+            <div><span class="label">Email:</span> AWS SES (SMTP)</div>
+          </div>
+        </div>
+
+        <!-- External APIs row -->
+        <div class="node node-ext" style="grid-row:4; grid-column:1; align-self:start; margin-top:0;">
+          <div class="node-title">External API</div>
+          <div class="node-name">OpenWeatherMap</div>
+          <div class="node-badge">REST API</div>
+          <div class="node-detail">
+            <div><span class="label">URL:</span> <code>api.openweathermap.org</code></div>
+            <div><span class="label">Endpoint:</span> <code>/data/2.5/weather</code></div>
+            <div><span class="label">Used by:</span> Mobile App (direct)</div>
+            <div><span class="label">Purpose:</span> Dive site weather data</div>
+          </div>
+        </div>
+
+        <div class="node node-ext" style="grid-row:4; grid-column:2; align-self:start; margin-top:0;">
+          <div class="node-title">External API</div>
+          <div class="node-name">iNaturalist</div>
+          <div class="node-badge">REST API</div>
+          <div class="node-detail">
+            <div><span class="label">URL:</span> <code>api.inaturalist.org</code></div>
+            <div><span class="label">Used by:</span> Backend (cron job)</div>
+            <div><span class="label">Purpose:</span> Marine life data sync</div>
+            <div><span class="label">Token:</span> Auto-refreshed via cron</div>
+          </div>
+        </div>
+
+        <div class="node node-ext" style="grid-row:4; grid-column:3; align-self:start; margin-top:0;">
+          <div class="node-title">External API</div>
+          <div class="node-name">Currency Rate API</div>
+          <div class="node-badge">REST API</div>
+          <div class="node-detail">
+            <div><span class="label">Used by:</span> Backend (cron job)</div>
+            <div><span class="label">Purpose:</span> Live currency rates for trip expense tracking</div>
+            <div><span class="label">Storage:</span> Cached in MongoDB</div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Connection arrows legend -->
+      <div style="margin-top:28px; padding-top:20px; border-top:1px solid #e2e8f0;">
+        <div style="font-size:.75rem; font-weight:700; color:#718096; text-transform:uppercase; letter-spacing:.06em; margin-bottom:12px;">Connection Flow</div>
+        <div style="display:flex; flex-wrap:wrap; gap:12px; font-size:.75rem;">
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#4299e1;"></div> Mobile App → Backend API (HTTPS + JWT)</div>
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#9f7aea;"></div> Admin Dashboard → Backend API (HTTPS + JWT)</div>
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#48bb78;"></div> Backend API → MongoDB (mongoose)</div>
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#fc8181;"></div> Backend API → Redis (ioredis)</div>
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#d69e2e;"></div> Backend API → AWS S3 / SES</div>
+          <div style="display:flex;align-items:center;gap:6px;"><div style="width:30px;height:2px;background:#a0aec0;"></div> Mobile App → External APIs (direct)</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- TAB 2: CONNECTION DETAILS                             -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-connections">
+
+    <div class="section-title">All System Connections</div>
+
+    <table class="conn-table">
+      <thead>
+        <tr>
+          <th>From</th>
+          <th>To</th>
+          <th>Protocol / Port</th>
+          <th>URL / Host</th>
+          <th>Auth Method</th>
+          <th>Purpose</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Mobile App</strong><br/><small>iOS / Android</small></td>
+          <td><strong>Backend API</strong><br/><small>Production</small></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>https://apis.divebuddies.app</code></td>
+          <td><span class="tag tag-jwt">Bearer JWT</span><br/><span class="tag tag-basic">Basic Auth*</span></td>
+          <td>All user operations — auth, posts, trips, logs, home feed, articles</td>
+        </tr>
+        <tr>
+          <td><strong>Mobile App</strong><br/><small>Dev / Testing</small></td>
+          <td><strong>Backend API</strong><br/><small>Dev Server</small></td>
+          <td><span class="tag tag-https">HTTP / 80</span></td>
+          <td><code>http://13.234.75.73</code></td>
+          <td><span class="tag tag-jwt">Bearer JWT</span></td>
+          <td>Development and testing (commented out in production build)</td>
+        </tr>
+        <tr>
+          <td><strong>Mobile App</strong><br/><small>Local Dev</small></td>
+          <td><strong>Backend API</strong><br/><small>Local</small></td>
+          <td><span class="tag tag-internal">HTTP / 3001</span></td>
+          <td><code>http://192.168.1.28:3001</code></td>
+          <td><span class="tag tag-jwt">Bearer JWT</span></td>
+          <td>Local developer machine testing</td>
+        </tr>
+        <tr>
+          <td><strong>Admin Dashboard</strong><br/><small>DiveBuddies_Website</small></td>
+          <td><strong>Backend API</strong><br/><small>Production</small></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>$REACT_APP_BASE_URL</code> (env)</td>
+          <td><span class="tag tag-jwt">Bearer JWT</span></td>
+          <td>All admin operations — user management, sites, CMS, reports, articles</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>MongoDB Atlas</strong></td>
+          <td><span class="tag tag-internal">TCP / 27017</span></td>
+          <td><code>$MONGO_URI</code> (env)<br/><small>mongodb+srv://…</small></td>
+          <td><span class="tag tag-basic">URI Credentials</span></td>
+          <td>All persistent data storage — users, posts, trips, articles, etc.</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>Redis</strong></td>
+          <td><span class="tag tag-internal">TCP / $REDIS_PORT</span></td>
+          <td><code>$REDIS_HOST</code> (env)</td>
+          <td><span class="tag tag-basic">Host + Port</span></td>
+          <td>Session management, OTP storage, token blacklisting</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>AWS S3</strong></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>$AWS_BASE_URL</code> (env)<br/><small>*.amazonaws.com</small></td>
+          <td><span class="tag tag-basic">Access Key + Secret</span></td>
+          <td>File storage — profile images, post media, trip photos, article covers</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>AWS SES</strong></td>
+          <td><span class="tag tag-https">SMTP / $AWS_SES_PORT</span></td>
+          <td><code>$AWS_SES_HOST</code> (env)</td>
+          <td><span class="tag tag-basic">SMTP Credentials</span></td>
+          <td>Transactional emails — OTP, password reset, notifications</td>
+        </tr>
+        <tr>
+          <td><strong>Mobile App</strong></td>
+          <td><strong>OpenWeatherMap</strong></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>https://api.openweathermap.org/data/2.5/weather</code></td>
+          <td><span class="tag tag-basic">API Key (param)</span></td>
+          <td>Real-time weather data for dive sites</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>iNaturalist</strong></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>https://api.inaturalist.org</code></td>
+          <td><span class="tag tag-jwt">OAuth Token</span></td>
+          <td>Marine life species data sync (cron job, auto token refresh)</td>
+        </tr>
+        <tr>
+          <td><strong>Backend API</strong></td>
+          <td><strong>Currency Rate API</strong></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td>External currency rate service</td>
+          <td><span class="tag tag-basic">API Key</span></td>
+          <td>Live exchange rates for trip expense tracking (cached in MongoDB)</td>
+        </tr>
+        <tr>
+          <td><strong>Mobile App</strong></td>
+          <td><strong>AWS S3</strong></td>
+          <td><span class="tag tag-https">HTTPS / 443</span></td>
+          <td><code>$AWS_BASE_URL</code> (via presigned URL)</td>
+          <td><span class="tag tag-basic">Presigned POST URL</span></td>
+          <td>Direct file upload from app to S3 using server-generated presigned URLs</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="note">
+      <strong>* Basic Auth</strong> is used for specific public endpoints that do not require a user session: <code>marine/list</code>, <code>user/home</code>, <code>common/city</code>, <code>marine/categories</code>, <code>marine/token</code>, <code>common/currency-rate</code>, and <code>post/list</code> (when not logged in). Credentials: <code>Dive:Dive@123</code> (Base64 encoded).
+    </div>
+
+    <div class="section-title">IP Address Reference</div>
+    <div class="info-grid">
+      <div class="info-card">
+        <h3>Production Server</h3>
+        <div class="kv"><span class="k">Domain</span><span class="v">apis.divebuddies.app</span></div>
+        <div class="kv"><span class="k">Dev IP (AWS EC2)</span><span class="v">13.234.75.73</span></div>
+        <div class="kv"><span class="k">Protocol</span><span class="v">HTTPS (TLS)</span></div>
+        <div class="kv"><span class="k">Port</span><span class="v">443 (prod) / 80 (dev)</span></div>
+        <div class="kv"><span class="k">Vercel Mirror</span><span class="v">divebuddies-vercel.vercel.app</span></div>
+      </div>
+      <div class="info-card">
+        <h3>Local Development</h3>
+        <div class="kv"><span class="k">Dev Machine IP</span><span class="v">192.168.1.28</span></div>
+        <div class="kv"><span class="k">Dev Port</span><span class="v">3001</span></div>
+        <div class="kv"><span class="k">Protocol</span><span class="v">HTTP</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Local developer testing only</span></div>
+      </div>
+      <div class="info-card">
+        <h3>Database (MongoDB)</h3>
+        <div class="kv"><span class="k">Type</span><span class="v">MongoDB Atlas (Cloud)</span></div>
+        <div class="kv"><span class="k">Protocol</span><span class="v">mongodb+srv://</span></div>
+        <div class="kv"><span class="k">Port</span><span class="v">27017 (default)</span></div>
+        <div class="kv"><span class="k">URI</span><span class="v">$MONGO_URI (env var)</span></div>
+        <div class="kv"><span class="k">ODM</span><span class="v">Mongoose 8.8.3</span></div>
+      </div>
+      <div class="info-card">
+        <h3>Cache (Redis)</h3>
+        <div class="kv"><span class="k">Host</span><span class="v">$REDIS_HOST (env var)</span></div>
+        <div class="kv"><span class="k">Port</span><span class="v">$REDIS_PORT (env var)</span></div>
+        <div class="kv"><span class="k">DB Index</span><span class="v">$REDIS_DB (env var)</span></div>
+        <div class="kv"><span class="k">Library</span><span class="v">ioredis 5.4.1</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Sessions, OTP, token blacklist</span></div>
+      </div>
+      <div class="info-card">
+        <h3>AWS S3 Storage</h3>
+        <div class="kv"><span class="k">Bucket</span><span class="v">$S3_BUCKET (env var)</span></div>
+        <div class="kv"><span class="k">Region</span><span class="v">$S3_REGION (env var)</span></div>
+        <div class="kv"><span class="k">Base URL</span><span class="v">$AWS_BASE_URL (env var)</span></div>
+        <div class="kv"><span class="k">SDK</span><span class="v">@aws-sdk/client-s3</span></div>
+        <div class="kv"><span class="k">Upload method</span><span class="v">Presigned POST URLs</span></div>
+      </div>
+      <div class="info-card">
+        <h3>AWS SES (Email)</h3>
+        <div class="kv"><span class="k">Host</span><span class="v">$AWS_SES_HOST (env var)</span></div>
+        <div class="kv"><span class="k">Port</span><span class="v">$AWS_SES_PORT (env var)</span></div>
+        <div class="kv"><span class="k">From Email</span><span class="v">$AWS_SES_FROM_EMAIL (env)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">OTP, password reset, alerts</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- TAB 3: API ENDPOINTS                                  -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-endpoints">
+
+    <div class="section-title">Mobile App — User API Endpoints</div>
+    <div class="note" style="margin-bottom:16px;">Base URL: <code>https://apis.divebuddies.app/api/v1</code></div>
+
+    <table class="ep-table" style="margin-bottom:32px;">
+      <thead><tr><th>Method</th><th>Endpoint</th><th>Auth</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/signup</code></td><td>—</td><td>Register new user</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/login</code></td><td>—</td><td>User login, returns JWT</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/social-login</code></td><td>—</td><td>Social login (Google/Apple)</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/forgot-password</code></td><td>—</td><td>Send OTP for password reset</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/verify-otp</code></td><td>—</td><td>Verify OTP code</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/reset-password</code></td><td>—</td><td>Reset password with OTP</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/logout</code></td><td>JWT</td><td>Logout and invalidate token</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/details</code></td><td>JWT</td><td>Get logged-in user profile</td></tr>
+        <tr><td><span class="method put">PUT</span></td><td><code>/user/profile</code></td><td>JWT</td><td>Update profile</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/home</code></td><td>Basic</td><td>Home screen data (sites, marine, posts)</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/home/search</code></td><td>JWT</td><td>Search across app</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/post</code></td><td>JWT</td><td>Create new post (Influence feed)</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/post/list</code></td><td>JWT/Basic</td><td>Get paginated post feed</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/post</code></td><td>JWT</td><td>Get single post details</td></tr>
+        <tr><td><span class="method delete">DEL</span></td><td><code>/user/post</code></td><td>JWT</td><td>Delete post</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/post/like</code></td><td>JWT</td><td>Like / unlike post</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/comment</code></td><td>JWT</td><td>Add comment to post</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/comment</code></td><td>JWT</td><td>Get comments for post</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/bookmark</code></td><td>JWT</td><td>Bookmark a post</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/report</code></td><td>JWT</td><td>Report a post or user</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/trip</code></td><td>JWT</td><td>Create dive trip</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/trip</code></td><td>JWT</td><td>List user trips</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/dive/logs</code></td><td>JWT</td><td>Create dive log</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/dive/logs</code></td><td>JWT</td><td>Get dive logs</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/expense</code></td><td>JWT</td><td>Add trip expense</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/buddy/buddies</code></td><td>JWT</td><td>Add dive buddy</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/user/feedback</code></td><td>JWT</td><td>Submit feedback</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/article/list</code></td><td>JWT</td><td>Get published articles <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/user/article</code></td><td>JWT</td><td>Get article details <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/common/city/list</code></td><td>Basic</td><td>List cities</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/common/file/upload/request</code></td><td>JWT</td><td>Get S3 presigned upload URL</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/marine/categories</code></td><td>Basic</td><td>Marine life categories</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/marine/list</code></td><td>Basic</td><td>Marine life species list</td></tr>
+      </tbody>
+    </table>
+
+    <div class="section-title">Admin Dashboard — Admin API Endpoints</div>
+    <div class="note" style="margin-bottom:16px;">Base URL: <code>https://apis.divebuddies.app/api/v1</code> — All require admin JWT</div>
+
+    <table class="ep-table">
+      <thead><tr><th>Method</th><th>Endpoint</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td><span class="method post">POST</span></td><td><code>/admin/login</code></td><td>Admin login</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/dashboard</code></td><td>Dashboard stats (users, posts, sites counts)</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/user</code></td><td>List all users</td></tr>
+        <tr><td><span class="method patch">PATCH</span></td><td><code>/admin/user/status</code></td><td>Enable / disable user account</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/site</code></td><td>List all dive sites</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/admin/site</code></td><td>Add new dive site</td></tr>
+        <tr><td><span class="method put">PUT</span></td><td><code>/admin/site/:id</code></td><td>Update dive site</td></tr>
+        <tr><td><span class="method delete">DEL</span></td><td><code>/admin/site/:id</code></td><td>Delete dive site</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/cms</code></td><td>List CMS pages</td></tr>
+        <tr><td><span class="method put">PUT</span></td><td><code>/admin/cms/:id</code></td><td>Update CMS page content</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/city</code></td><td>List cities</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/admin/city</code></td><td>Add city</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/report</code></td><td>List user reports</td></tr>
+        <tr><td><span class="method patch">PATCH</span></td><td><code>/admin/report/:id</code></td><td>Resolve / dismiss report</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/feedback</code></td><td>List user feedback</td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/contact-us</code></td><td>List contact/query submissions</td></tr>
+        <tr><td><span class="method post">POST</span></td><td><code>/admin/article</code></td><td>Create article <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/article</code></td><td>List all articles (all statuses) <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method get">GET</span></td><td><code>/admin/article/:id</code></td><td>Get article details <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method put">PUT</span></td><td><code>/admin/article/:id</code></td><td>Update article <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method patch">PATCH</span></td><td><code>/admin/article/:id/status</code></td><td>Publish / Draft / Set Offline <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+        <tr><td><span class="method delete">DEL</span></td><td><code>/admin/article/:id</code></td><td>Delete article <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════ -->
+  <!-- TAB 4: EXTERNAL SERVICES                              -->
+  <!-- ══════════════════════════════════════════════════════ -->
+  <div class="tab-content" id="tab-services">
+
+    <div class="section-title">External Services &amp; Third-Party Integrations</div>
+
+    <div class="info-grid">
+      <div class="info-card" style="border-left-color:#d69e2e;">
+        <h3 style="color:#975a16;">AWS S3 — File Storage</h3>
+        <div class="kv"><span class="k">Service</span><span class="v">Amazon S3</span></div>
+        <div class="kv"><span class="k">SDK</span><span class="v">@aws-sdk/client-s3</span></div>
+        <div class="kv"><span class="k">Upload method</span><span class="v">Presigned POST URLs</span></div>
+        <div class="kv"><span class="k">Folders</span><span class="v">profile/, posts/, trips/, logs/, sites/, articles/cover/</span></div>
+        <div class="kv"><span class="k">Config</span><span class="v">S3_BUCKET, S3_REGION, S3_ACCESS_KEY_ID, S3_SECRET_ACCESS_KEY, AWS_BASE_URL</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#d69e2e;">
+        <h3 style="color:#975a16;">AWS SES — Email</h3>
+        <div class="kv"><span class="k">Service</span><span class="v">Amazon SES (SMTP)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">OTP emails, password reset, admin notifications</span></div>
+        <div class="kv"><span class="k">Config</span><span class="v">AWS_SES_HOST, AWS_SES_PORT, AWS_SES_FROM_EMAIL, AWS_SES_ACCESS_KEY, AWS_SES_SECRET_ACCESS_KEY</span></div>
+        <div class="kv"><span class="k">Flag</span><span class="v">SES_FLAG (enable/disable)</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#4299e1;">
+        <h3 style="color:#2b6cb0;">OpenWeatherMap</h3>
+        <div class="kv"><span class="k">URL</span><span class="v">api.openweathermap.org/data/2.5/weather</span></div>
+        <div class="kv"><span class="k">Called by</span><span class="v">Mobile App (direct HTTP call)</span></div>
+        <div class="kv"><span class="k">Auth</span><span class="v">API key as query param</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Real-time weather for dive site cards</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#48bb78;">
+        <h3 style="color:#276749;">iNaturalist API</h3>
+        <div class="kv"><span class="k">URL</span><span class="v">api.inaturalist.org</span></div>
+        <div class="kv"><span class="k">Called by</span><span class="v">Backend API (cron job)</span></div>
+        <div class="kv"><span class="k">Auth</span><span class="v">OAuth token (auto-refreshed)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Marine life species data, observations, taxonomy</span></div>
+        <div class="kv"><span class="k">Storage</span><span class="v">Token cached in MongoDB</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#9f7aea;">
+        <h3 style="color:#6b46c1;">Currency Rate API</h3>
+        <div class="kv"><span class="k">Called by</span><span class="v">Backend API (cron job)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Live exchange rates for trip expense tracking</span></div>
+        <div class="kv"><span class="k">Storage</span><span class="v">Cached in MongoDB (currencyRates collection)</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#fc8181;">
+        <h3 style="color:#c53030;">Google reCAPTCHA</h3>
+        <div class="kv"><span class="k">Config</span><span class="v">GOOGLE_CAPTCHA_SECRET (env)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Bot protection on sensitive forms</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#ed8936;">
+        <h3 style="color:#c05621;">Instagram (New Feature)</h3>
+        <div class="kv"><span class="k">Library</span><span class="v">react-native-share</span></div>
+        <div class="kv"><span class="k">Method</span><span class="v">Share.shareSingle (Social.INSTAGRAM)</span></div>
+        <div class="kv"><span class="k">Called by</span><span class="v">Mobile App (direct, no API key needed)</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Cross-post from DiveBuddies feed to Instagram</span></div>
+        <div class="kv"><span class="k">Branch</span><span class="v">feature/instagram-cross-post</span></div>
+      </div>
+      <div class="info-card" style="border-left-color:#a0aec0;">
+        <h3 style="color:#4a5568;">Vercel (Deployment)</h3>
+        <div class="kv"><span class="k">URL</span><span class="v">divebuddies-vercel.vercel.app</span></div>
+        <div class="kv"><span class="k">Usage</span><span class="v">Alternative/mirror deployment of backend API</span></div>
+        <div class="kv"><span class="k">Referenced in</span><span class="v">endPoints.ts (BASE_URL)</span></div>
+      </div>
+    </div>
+
+    <div class="section-title" style="margin-top:8px;">MongoDB Collections</div>
+    <table class="ep-table">
+      <thead><tr><th>Collection</th><th>Description</th><th>Key Fields</th></tr></thead>
+      <tbody>
+        <tr><td><code>users</code></td><td>User accounts and profiles</td><td>email, password, profileImage, isPrivate, referral, status</td></tr>
+        <tr><td><code>posts</code></td><td>Influence feed posts</td><td>userId, mediaUrl, title, description, taggedUsers, location, articleRef</td></tr>
+        <tr><td><code>comments</code></td><td>Post comments</td><td>postId, userId, text, createdAt</td></tr>
+        <tr><td><code>likes</code></td><td>Post likes</td><td>postId, userId</td></tr>
+        <tr><td><code>bookmarks</code></td><td>Saved posts</td><td>postId, userId</td></tr>
+        <tr><td><code>reports</code></td><td>User/post reports</td><td>reportedBy, reportedUser/Post, reason, status</td></tr>
+        <tr><td><code>trips</code></td><td>Dive trip plans</td><td>userId, sites, itinerary, hotels, checklist, budget, status</td></tr>
+        <tr><td><code>expenses</code></td><td>Trip expenses</td><td>tripId, userId, amount, category, payer</td></tr>
+        <tr><td><code>divelogs</code></td><td>Individual dive logs</td><td>userId, site, depth, duration, visibility, animals, buddies</td></tr>
+        <tr><td><code>buddies</code></td><td>Buddy connections</td><td>userId, buddyId, status</td></tr>
+        <tr><td><code>sites</code></td><td>Dive site directory</td><td>name, location, coordinates, depth, difficulty, images</td></tr>
+        <tr><td><code>cities</code></td><td>City/location data</td><td>name, country, coordinates</td></tr>
+        <tr><td><code>cms</code></td><td>CMS pages (Terms, Privacy, About)</td><td>type, title, content, updatedAt</td></tr>
+        <tr><td><code>feedback</code></td><td>User feedback submissions</td><td>userId, message, rating, createdAt</td></tr>
+        <tr><td><code>articles</code></td><td>Admin-authored articles <span style="background:#c6f6d5;color:#276749;font-size:.68rem;padding:1px 5px;border-radius:3px;font-weight:700;">NEW</span></td><td>title, coverImage, body, author, category, tags, status, publishedDate</td></tr>
+        <tr><td><code>marinelife</code></td><td>Marine species data (from iNaturalist)</td><td>name, category, description, image, taxon</td></tr>
+        <tr><td><code>inaturalisttokens</code></td><td>iNaturalist OAuth tokens</td><td>token, expiresAt</td></tr>
+        <tr><td><code>currencyrates</code></td><td>Cached exchange rates</td><td>base, rates, updatedAt</td></tr>
+        <tr><td><code>logs</code></td><td>System activity logs</td><td>action, userId, metadata, createdAt</td></tr>
+        <tr><td><code>userblocks</code></td><td>Blocked user relationships</td><td>blockerId, blockedId</td></tr>
+        <tr><td><code>siteviews</code></td><td>Dive site view analytics</td><td>siteId, userId, viewedAt</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div style="text-align:center; padding:24px 0; color:#a0aec0; font-size:.75rem;">
+    DiveBuddies Platform Architecture — Generated from source code analysis · Mar 2026
+  </div>
+
+</div>
+
+<script>
+  function showTab(name) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    event.target.classList.add('active');
+  }
+</script>
+</body>
+</html>
